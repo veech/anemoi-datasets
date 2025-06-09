@@ -114,6 +114,9 @@ def load_one(
     else:
         data = xr.open_dataset(dataset, **options)
 
+    if "hybrid" in data.coords:
+        data = data.rename({"hybrid": "level"})
+
     fs = XarrayFieldList.from_xarray(data, flavour=flavour, patch=patch)
 
     if len(dates) == 0:
