@@ -10,6 +10,7 @@
 
 import logging
 import os
+import boto3
 from typing import Dict
 from typing import Optional
 
@@ -32,6 +33,35 @@ def compute_directory_sizes(path: str) -> Optional[Dict[str, int]]:
     dict of str to int or None
         A dictionary with the total size and number of files, or None if the path is not a directory.
     """
+
+    if path.startswith("s3://"):
+        results = compute_directory_sizes_s3(path)
+    else:
+        results = compute_directory_sizes_local(path)
+
+    if results is None:
+        LOG.warning(f"Could not compute size of {path}")
+        return None
+
+    LOG.info(f"Total size: {bytes_to_human(results['total_size'])}")
+    LOG.info(f"Total number of files: {results['total_number_of_files']}")
+
+    return results
+
+
+def compute_directory_sizes_local(path: str) -> Optional[int]:
+    """Computes the total size of a directory on the local filesystem.
+
+    Parameters
+    ----------
+    path : str
+        The path to the directory.
+
+    Returns
+    -------
+    dict of str to int or None
+        A dictionary with the total size and number of files, or None if the path is not a directory.
+    """
     if not os.path.isdir(path):
         return None
 
@@ -43,7 +73,34 @@ def compute_directory_sizes(path: str) -> Optional[Dict[str, int]]:
             size += os.path.getsize(file_path)
             n += 1
 
-    LOG.info(f"Total size: {bytes_to_human(size)}")
-    LOG.info(f"Total number of files: {n}")
+    return dict(total_size=size, total_number_of_files=n)
+
+
+def compute_directory_sizes_s3(path: str) -> Optional[int]:
+    """Computes the total size of a directory in S3.
+
+    Parameters
+    ----------
+    path : str
+        The path to the directory.
+
+    Returns
+    -------
+    dict of str to int or None
+        A dictionary with the total size and number of files, or None if the path is not a directory.
+    """
+    bucket_name, prefix = path.replace("s3://", "").split("/", 1)
+
+    s3 = boto3.client('s3')
+    paginator = s3.get_paginator('list_objects_v2')
+
+    size = 0
+    n = 0
+
+    for page in paginator.paginate(Bucket=bucket_name, Prefix=prefix):
+        contents = page.get('Contents', [])
+        for obj in contents:
+            n += 1
+            size += obj['Size']
 
     return dict(total_size=size, total_number_of_files=n)
